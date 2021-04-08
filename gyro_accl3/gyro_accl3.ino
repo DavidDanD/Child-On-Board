@@ -36,6 +36,10 @@ float gyroXerror = 0.07;
 float gyroYerror = 0.03;
 float gyroZerror = 0.01;
 
+//FSR
+const int fstPin = 34;
+int fsrValue = 0;
+
 // Init MPU6050
 void initMPU(){
   if (!mpu.begin()) {
@@ -70,21 +74,12 @@ void getreadings(){
   gyroX = g.gyro.x;
   gyroY = g.gyro.y;
   gyroZ = g.gyro.z;
-  
-//  float gyroX_temp = g.gyro.x;
-//  if(abs(gyroX_temp) > gyroXerror)  {
-//    gyroX += gyroX_temp;//50.00;
-//  }
-//  
-//  float gyroY_temp = g.gyro.y;
-//  if(abs(gyroY_temp) > gyroYerror) {
-//    gyroY += gyroY_temp;//70.00;
-//  }
-//
-//  float gyroZ_temp = g.gyro.z;
-//  if(abs(gyroZ_temp) > gyroZerror) {
-//    gyroZ += gyroZ_temp;//90.00;
-//  }
+
+  if ((millis() - lastTimeTemperature) > temperatureDelay) {
+//    Serial.print("Temperature: ");
+//    Serial.println(getTemperature().c_str());
+    lastTimeTemperature = millis();
+  }
 }
 
 String getTemperature(){
@@ -103,8 +98,9 @@ void loop() {
   if ((millis() - lastTime) > sampleDelay) {
     // Send Events to the Web Server with the Sensor Readings
     getreadings();
-
-    Serial.println(abs(gyroX)); 
+    fsrValue = analogRead(fstPin);
+    Serial.println(fsrValue);
+//    Serial.println(abs(gyroX));
     if (abs(lastGyroX-gyroX)>1 || abs(lastGyroY-gyroY)>1 || abs(lastGyroZ-gyroZ)>1) {
       Serial.println("Gyroscope: ");
       Serial.println(abs(lastGyroX-gyroX));
@@ -112,7 +108,7 @@ void loop() {
       Serial.println(abs(lastGyroZ-gyroZ));
     }
 
-    Serial.println(abs(accX)); 
+//    Serial.println(abs(accX)); 
     if (abs(lastAccX-accX)>1 || abs(lastAccY-accY)>1 || abs(lastAccZ-accZ)>1) {
       Serial.println("Acceleration: ");
       Serial.println(abs(lastAccX-accX));
@@ -120,11 +116,5 @@ void loop() {
       Serial.println(abs(lastAccZ-accZ));
     }
     lastTime = millis();
-  }
-  if ((millis() - lastTimeTemperature) > temperatureDelay) {
-    // Send Events to the Web Server with the Sensor Readings
-    Serial.print("Temperature: ");
-    Serial.println(getTemperature().c_str());
-    lastTimeTemperature = millis();
   }
 }
