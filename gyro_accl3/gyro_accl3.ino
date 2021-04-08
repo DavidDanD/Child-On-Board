@@ -12,19 +12,13 @@
 #include <Arduino.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
-#include <Arduino_JSON.h>
 #include "SPIFFS.h"
-
-// Json Variable to Hold Sensor Readings
-JSONVar readings;
 
 // Timer variables
 unsigned long lastTime = 0;  
 unsigned long lastTimeTemperature = 0;
-unsigned long lastTimeAcc = 0;
-unsigned long gyroDelay = 500;
+unsigned long sampleDelay = 500;
 unsigned long temperatureDelay = 10000;
-unsigned long accelerometerDelay = 500;
 
 // Create a sensor object
 Adafruit_MPU6050 mpu;
@@ -33,6 +27,8 @@ sensors_event_t a, g, temp;
 
 float gyroX, gyroY, gyroZ;
 float accX, accY, accZ;
+float lastGyroX, lastGyroY, lastGyroZ;
+float lastAccX, lastAccY, lastAccZ;
 float temperature;
 
 //Gyroscope sensor deviation
@@ -61,35 +57,34 @@ void initSPIFFS() {
 void getreadings(){
   mpu.getEvent(&a, &g, &temp);
 
-  float gyroX_temp = g.gyro.x;
-  if(abs(gyroX_temp) > gyroXerror)  {
-    gyroX += gyroX_temp;//50.00;
-  }
-  
-  float gyroY_temp = g.gyro.y;
-  if(abs(gyroY_temp) > gyroYerror) {
-    gyroY += gyroY_temp;//70.00;
-  }
-
-  float gyroZ_temp = g.gyro.z;
-  if(abs(gyroZ_temp) > gyroZerror) {
-    gyroZ += gyroZ_temp;//90.00;
-  }
-
-  readings["gyroX"] = String(gyroX);
-  readings["gyroY"] = String(gyroY);
-  readings["gyroZ"] = String(gyroZ);
-}
-
-void getAccReadings() {
-  mpu.getEvent(&a, &g, &temp);
-  // Get current acceleration values
+  lastAccX = accX;
+  lastAccY = accY;
+  lastAccZ = accZ;
   accX = a.acceleration.x;
   accY = a.acceleration.y;
   accZ = a.acceleration.z;
-  readings["accX"] = String(accX);
-  readings["accY"] = String(accY);
-  readings["accZ"] = String(accZ);
+  
+  lastGyroX = gyroX;
+  lastGyroY = gyroY;
+  lastGyroZ = gyroZ;
+  gyroX = g.gyro.x;
+  gyroY = g.gyro.y;
+  gyroZ = g.gyro.z;
+  
+//  float gyroX_temp = g.gyro.x;
+//  if(abs(gyroX_temp) > gyroXerror)  {
+//    gyroX += gyroX_temp;//50.00;
+//  }
+//  
+//  float gyroY_temp = g.gyro.y;
+//  if(abs(gyroY_temp) > gyroYerror) {
+//    gyroY += gyroY_temp;//70.00;
+//  }
+//
+//  float gyroZ_temp = g.gyro.z;
+//  if(abs(gyroZ_temp) > gyroZerror) {
+//    gyroZ += gyroZ_temp;//90.00;
+//  }
 }
 
 String getTemperature(){
@@ -105,32 +100,26 @@ void setup() {
 }
 
 void loop() {
-  if ((millis() - lastTime) > gyroDelay) {
+  if ((millis() - lastTime) > sampleDelay) {
     // Send Events to the Web Server with the Sensor Readings
-    String gyroxStr = JSON.stringify(readings["gyroX"]);
-    float gyrox = gyroxStr .toFloat();
     getreadings();
-    String gyroxNewStr = JSON.stringify(readings["gyroX"]);
-    float gyroxNew = gyroxNewStr .toFloat();
-    Serial.println(gyrox);
-    Serial.println(gyroxNew);
-//    if (abs(gyrox-gyroxNew)>0.1) {
-      Serial.print("Gyroscope: ");
-      Serial.println(gyroxNewStr);
-//    }
+
+    Serial.println(abs(gyroX)); 
+    if (abs(lastGyroX-gyroX)>1 || abs(lastGyroY-gyroY)>1 || abs(lastGyroZ-gyroZ)>1) {
+      Serial.println("Gyroscope: ");
+      Serial.println(abs(lastGyroX-gyroX));
+      Serial.println(abs(lastGyroY-gyroY));
+      Serial.println(abs(lastGyroZ-gyroZ));
+    }
+
+    Serial.println(abs(accX)); 
+    if (abs(lastAccX-accX)>1 || abs(lastAccY-accY)>1 || abs(lastAccZ-accZ)>1) {
+      Serial.println("Acceleration: ");
+      Serial.println(abs(lastAccX-accX));
+      Serial.println(abs(lastAccY-accY));
+      Serial.println(abs(lastAccZ-accZ));
+    }
     lastTime = millis();
-  }
-  if ((millis() - lastTimeAcc) > accelerometerDelay) {
-    // Send Events to the Web Server with the Sensor Readings
-    getAccReadings();
-    String accxStr = JSON.stringify(readings["accX"]);
-    float accxNew = accxStr.toFloat();
-    Serial.println(accxNew);
-//    if (abs(accxNew)>1) {
-      Serial.print("Acceleration: ");
-      Serial.println(accxStr);
-//    }
-    lastTimeAcc = millis();
   }
   if ((millis() - lastTimeTemperature) > temperatureDelay) {
     // Send Events to the Web Server with the Sensor Readings
