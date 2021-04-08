@@ -13,6 +13,12 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include "SPIFFS.h"
+#include "DHT.h"
+
+//PINS
+#define FSR_PIN 34
+#define DHT_PIN 4
+#define DHT_TYPE DHT22
 
 // Timer variables
 unsigned long lastTime = 0;  
@@ -37,8 +43,10 @@ float gyroYerror = 0.03;
 float gyroZerror = 0.01;
 
 //FSR
-const int fstPin = 34;
 int fsrValue = 0;
+int fsrThreshold = 500;
+
+DHT dht(DHT_PIN, DHT_TYPE);
 
 // Init MPU6050
 void initMPU(){
@@ -92,14 +100,17 @@ void setup() {
   Serial.begin(115200);
   initSPIFFS();
   initMPU();
+  dht.begin();
 }
 
 void loop() {
   if ((millis() - lastTime) > sampleDelay) {
     // Send Events to the Web Server with the Sensor Readings
     getreadings();
-    fsrValue = analogRead(fstPin);
-    Serial.println(fsrValue);
+    fsrValue = analogRead(FSR_PIN);
+    if (fsrValue>fsrThreshold) {
+      Serial.println(fsrValue);
+    }
 //    Serial.println(abs(gyroX));
     if (abs(lastGyroX-gyroX)>1 || abs(lastGyroY-gyroY)>1 || abs(lastGyroZ-gyroZ)>1) {
       Serial.println("Gyroscope: ");
@@ -116,5 +127,23 @@ void loop() {
       Serial.println(abs(lastAccZ-accZ));
     }
     lastTime = millis();
+    
+    float h = dht.readHumidity();
+    // Read temperature as Celsius (the default)
+    float t = dht.readTemperature();
+  
+    // Check if temperature read failed.
+    if (isnan(t) || isnan(h)) {
+      Serial.println(F("Failed to read from DHT sensor!"));
+      return;
+    }
+    // Compute heat index in Celsius (isFahreheit = false)
+    float hic = dht.computeHeatIndex(t, h, false);
+    Serial.print("Current temperature: ");
+    Serial.println(t);
+    Serial.print("Current humidity: ");
+    Serial.println(h);
+    Serial.print("Current heat index: ");
+    Serial.println(hic);
   }
 }
