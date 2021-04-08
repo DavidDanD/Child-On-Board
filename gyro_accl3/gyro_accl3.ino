@@ -18,6 +18,7 @@
 //PINS
 #define FSR_PIN 34
 #define DHT_PIN 4
+#define BUZZER_PIN 25
 #define DHT_TYPE DHT22
 
 // Timer variables
@@ -45,6 +46,11 @@ float gyroZerror = 0.01;
 //FSR
 int fsrValue = 0;
 int fsrThreshold = 500;
+
+//Buzzer
+int freq = 0;
+int channel = 0;
+int resolution = 8;
 
 DHT dht(DHT_PIN, DHT_TYPE);
 
@@ -101,6 +107,9 @@ void setup() {
   initSPIFFS();
   initMPU();
   dht.begin();
+//  pinMode(BUZZER_PIN,OUTPUT);
+  ledcSetup(channel, freq, resolution);
+  ledcAttachPin(BUZZER_PIN, channel);
 }
 
 void loop() {
@@ -145,5 +154,17 @@ void loop() {
     Serial.println(h);
     Serial.print("Current heat index: ");
     Serial.println(hic);
+    
+    for(int i=0; i<5; i++){
+//      tone(BUZZER_PIN, 500); // tone() is the main function to use with a buzzer, it takes 2 or 3 parameteres (buzzer pin, sound frequency, duration)
+      ledcWriteTone(channel, 500);
+      delay(100);
+//      tone(BUZZER_PIN, 2000); // You can also use noTone() to stop the sound it takes 1 parametere which is the buzzer pin
+      ledcWriteTone(channel, 2000);
+      delay(100);
+    }
+//    noTone(BUZZER_PIN);
+    ledcWriteTone(channel, 0);
+    delay(1000);
   }
 }
