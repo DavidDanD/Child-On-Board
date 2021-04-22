@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
+#include <pthread.h>
 #include "SPIFFS.h"
 #include "DHT.h"
 
@@ -43,6 +44,10 @@ int fsrThreshold = 500;
 int freq = 0;
 int channel = 0;
 int resolution = 8;
+pthread_t buzzerThread;
+int* returnValue;
+bool stopBuzzer = true;
+int buzzerParams[] = {0,0,0};
 
 //DHT
 float h,t,hic;
@@ -53,7 +58,7 @@ String msg;
 
 //Thresholds
 #define weightThreshold 500
-#define hicThreshold 24.5
+#define hicThreshold 26
 #define IdleThresholdSMS 5*1000
 #define IdleThresholdBuzz 10*1000
 DHT dht(DHT_PIN, DHT_TYPE);
@@ -95,12 +100,36 @@ void sendMsg(String msg){
   lastTimeSMS = millis();
 }
 
+void *alarmThread(void* args){
+
+  while(!stopBuzzer){
+    ledcWriteTone(channel, buzzerParams[0]);
+    delay(buzzerParams[2]);
+    ledcWriteTone(channel, buzzerParams[1]);
+    delay(buzzerParams[2]);
+  }
+  ledcWriteTone(channel, 0);
+  pthread_exit(NULL);
+  
+}
+
 void softAlarm(){
-  Serial.println("soft alarm");
+  buzzerParams[0] = 500;
+  buzzerParams[1] = 0;
+  buzzerParams[2] = 1000;
+  stopBuzzer = false;
+  pthread_create(&buzzerThread, NULL, alarmThread, NULL);
 }
 
 void Alarm(){
-  Serial.println("alarm");
+  if(!stopBuzzer){
+    return;
+  }
+  buzzerParams[0] = 2000;
+  buzzerParams[1] = 500;
+  buzzerParams[2] = 300;
+  stopBuzzer = false;
+  pthread_create(&buzzerThread, NULL, alarmThread, NULL);
 }
 
 void getreadings(){
@@ -219,6 +248,8 @@ void state_machine_run()
       else{
         state = START;
       }
+      stopBuzzer = true;
+      pthread_join(buzzerThread, (void**)(&returnValue));
       break;
  
     case ALARM:
@@ -226,15 +257,21 @@ void state_machine_run()
       Alarm();
       if(fsrValue < weightThreshold){
         state = RESET;
+        stopBuzzer = true;
+        pthread_join(buzzerThread, (void**)(&returnValue));
         break;
       }
       getreadings();
       if(abs(lastAccX-accX)>1 || abs(lastAccY-accY)>1 || abs(lastAccZ-accZ)>1){
         state = START;
+        stopBuzzer = true;
+        pthread_join(buzzerThread, (void**)(&returnValue));
         break;
       }
       if(abs(lastGyroX-gyroX)>1 || abs(lastGyroY-gyroY)>1 || abs(lastGyroZ-gyroZ)>1){
         state = START;
+        stopBuzzer = true;
+        pthread_join(buzzerThread, (void**)(&returnValue));
         break;
       }
       if((millis() - lastTimeSMS) > SMSDelay){
