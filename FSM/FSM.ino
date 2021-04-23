@@ -2,7 +2,6 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <pthread.h>
-#include "SPIFFS.h"
 #include "DHT.h"
 
 //PINS
@@ -41,6 +40,7 @@ int fsrValue = 0;
 int fsrThreshold = 500;
 
 //Buzzer
+#define SOFT_ALARM_DELAY 5*1000
 int freq = 0;
 int channel = 0;
 int resolution = 8;
@@ -73,14 +73,6 @@ void initMPU(){
   }
   Serial.println("MPU6050 Found!");
 }
-
-void initSPIFFS() {
-  if (!SPIFFS.begin()) {
-    Serial.println("An error has occurred while mounting SPIFFS");
-  }
-  Serial.println("SPIFFS mounted successfully");
-}
-
 
 enum State_enum {RESET, START, SOFT_ALARM, ALARM, SMS, ENGINE_IDLE};
  
@@ -166,7 +158,6 @@ void getreadings(){
 
 void setup(){
   Serial.begin(115200);
-  initSPIFFS();
   initMPU();
   dht.begin();
 //  pinMode(BUZZER_PIN,OUTPUT);
@@ -218,6 +209,20 @@ void state_machine_run()
         state = RESET;
       }
       getreadings();
+//      Serial.print("lastAccX-accX: ");
+//      Serial.println(abs(lastAccX-accX));
+//      Serial.print("lastAccY-accY: ");
+//      Serial.println(abs(lastAccY-accY));
+//      Serial.print("lastAccZ-accZ: ");
+//      Serial.println(abs(lastAccZ-accZ));
+//      Serial.print("lastGyroX-gyroX: ");
+//      Serial.println(abs(lastGyroX-gyroX));
+//      Serial.print("lastGyroY-gyroY: ");
+//      Serial.println(abs(lastGyroY-gyroY));
+//      Serial.print("lastGyroZ-gyroZ: ");
+//      Serial.println(abs(lastGyroZ-gyroZ));
+//      Serial.print("temp: ");
+//      Serial.println(hic);
       if(abs(lastAccX-accX)>1 || abs(lastAccY-accY)>1 || abs(lastAccZ-accZ)>1){
         state = START;
         break;
@@ -248,6 +253,7 @@ void state_machine_run()
       else{
         state = START;
       }
+      delay(SOFT_ALARM_DELAY);
       stopBuzzer = true;
       pthread_join(buzzerThread, (void**)(&returnValue));
       break;
