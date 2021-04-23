@@ -6,7 +6,7 @@
 
 //PINS
 #define FSR_PIN 34
-#define DHT_PIN 0
+#define DHT_PIN 15
 #define BUZZER_PIN 25
 #define DHT_TYPE DHT22
 
@@ -57,8 +57,8 @@ int buzzerParams[] = {0,0,0};
 float h,t,hic;
 
 //SIM
-String msg;
-
+char *msg;
+char ch = 176;
 
 //Thresholds
 #define weightThreshold 500
@@ -261,7 +261,8 @@ void state_machine_run()
         }
       }
       if(hic >= hicThreshold){
-        sendMsg("High temprature");
+        asprintf(&msg, "High temperature: %.1f degrees Celsuis.", hic);
+        sendMsg(msg);
         state = SOFT_ALARM;
       }
       break;
@@ -295,7 +296,8 @@ void state_machine_run()
         break;
       }
       if(hic >= hicThreshold){
-        sendMsg("High temprature");
+        asprintf(&msg, "High temperature: %.1f degrees Celsuis.", hic);
+        sendMsg(msg);
         state = ALARM;
       }
       if((millis()-engineIdleTime) > IdleThresholdSMS){
