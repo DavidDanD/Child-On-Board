@@ -6,7 +6,7 @@
 
 //PINS
 #define FSR_PIN 34
-#define DHT_PIN 4
+#define DHT_PIN 0
 #define BUZZER_PIN 25
 #define DHT_TYPE DHT22
 
@@ -15,6 +15,7 @@ unsigned long lastTime = 0;
 unsigned long lastTimeTemperature = 0;
 unsigned long lastTimeSMS = 0;
 unsigned long engineIdleTime = 0;
+unsigned long engineIdleSMSTime = 0;
 unsigned long sampleDelay = 500;
 unsigned long SMSDelay = 10*1000;
 unsigned long temperatureDelay = 10000;
@@ -60,6 +61,7 @@ String msg;
 #define weightThreshold 500
 #define hicThreshold 26
 #define IdleThresholdSMS 5*1000
+#define IdleSMSDelay 5*1000
 #define IdleThresholdBuzz 10*1000
 DHT dht(DHT_PIN, DHT_TYPE);
 
@@ -77,18 +79,53 @@ void initMPU(){
 enum State_enum {RESET, START, SOFT_ALARM, ALARM, SMS, ENGINE_IDLE};
  
 void state_machine_run();
-void motors_stop();
-void motors_forward();
-void motors_right();
-void motors_left();
-uint8_t read_IR();
  
 uint8_t state = RESET;
 
+// SIM card PIN (leave empty, if not defined)
+const char simPIN[]   = "";
+
+// Your phone number to send SMS: + (plus sign) and country code, for Israel +972, followed by phone number
+#define SMS_TARGET  "+972546591910"
+
+// Configure TinyGSM library
+#define TINY_GSM_MODEM_SIM800      // Modem is SIM800
+#define TINY_GSM_RX_BUFFER   1024  // Set RX buffer to 1Kb
+
+#include <TinyGsmClient.h>
+
+// TTGO T-Call pins
+#define MODEM_RST            5
+#define MODEM_PWKEY          4
+#define MODEM_POWER_ON       23
+#define MODEM_TX             27
+#define MODEM_RX             26
+
+// Set serial for debug console (to Serial Monitor, default speed 115200)
+#define SerialMon Serial
+// Set serial for AT commands (to SIM800 module)
+#define SerialAT  Serial1
+
+// Define the serial console for debug prints, if needed
+//#define DUMP_AT_COMMANDS
+
+#ifdef DUMP_AT_COMMANDS
+  #include <StreamDebugger.h>
+  StreamDebugger debugger(SerialAT, SerialMon);
+  TinyGsm modem(debugger);
+#else
+  TinyGsm modem(SerialAT);
+#endif
  
-void sendMsg(String msg){
-  Serial.print("msg sent: ");
-  Serial.println(msg);
+void sendMsg(String smsMessage){
+  // To send an SMS, call modem.sendSMS(SMS_TARGET, smsMessage)
+//  String smsMessage = "Hello from ESP32!";
+  if(modem.sendSMS(SMS_TARGET, smsMessage)){
+    SerialMon.println(smsMessage);
+  }
+  else{
+    SerialMon.println("SMS failed to send");
+  }
   lastTimeSMS = millis();
 }
 
@@ -163,6 +200,29 @@ void setup(){
 //  pinMode(BUZZER_PIN,OUTPUT);
   ledcSetup(channel, freq, resolution);
   ledcAttachPin(BUZZER_PIN, channel);
+  
+  // Set modem reset, enable, power pins
+  pinMode(MODEM_PWKEY, OUTPUT);
+  pinMode(MODEM_RST, OUTPUT);
+  pinMode(MODEM_POWER_ON, OUTPUT);
+  digitalWrite(MODEM_PWKEY, LOW);
+  digitalWrite(MODEM_RST, HIGH);
+  digitalWrite(MODEM_POWER_ON, HIGH);
+
+  // Set GSM module baud rate and UART pins
+  SerialAT.begin(115200, SERIAL_8N1, MODEM_RX, MODEM_TX);
+  delay(3000);
+
+  // Restart SIM800 module, it takes quite some time
+  // To skip it, call init() instead of restart()
+  SerialMon.println("Initializing modem...");
+  modem.restart();
+  // use modem.init() if you don't need the complete restart
+
+  // Unlock your SIM card with a PIN if needed
+  if (strlen(simPIN) && modem.getSimStatus() != 3 ) {
+    modem.simUnlock(simPIN);
+  }
 }
  
 void loop(){
@@ -236,7 +296,10 @@ void state_machine_run()
         state = ALARM;
       }
       if((millis()-engineIdleTime) > IdleThresholdSMS){
-        sendMsg("Child on board");
+        if((millis()-engineIdleSMSTime) > IdleSMSDelay){
+          sendMsg("Child on board");
+          engineIdleSMSTime = millis();
+        }
       }
       if((millis()-engineIdleTime) > IdleThresholdBuzz){
         sendMsg("Child on board");
