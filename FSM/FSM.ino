@@ -32,9 +32,12 @@ float lastAccX, lastAccY, lastAccZ;
 float temperature;
 
 //Gyroscope sensor deviation
-float gyroXerror = 0.07;
-float gyroYerror = 0.03;
-float gyroZerror = 0.01;
+float gyroXThreshold = 0.4;
+float gyroYThreshold = 0.4;
+float gyroZThreshold = 0.4;
+float accXThreshold = 0.4;
+float accYThreshold = 0.4;
+float accZThreshold = 0.4;
 
 //FSR
 int fsrValue = 0;
@@ -250,8 +253,8 @@ void state_machine_run()
         break;
       }
       getreadings();
-      if(abs(lastAccX-accX)<1 && abs(lastAccY-accY)<1 && abs(lastAccZ-accZ)<1){
-        if(abs(lastGyroX-gyroX)<1 && abs(lastGyroY-gyroY)<1 && abs(lastGyroZ-gyroZ)<1){
+      if(abs(lastAccX-accX)<accXThreshold && abs(lastAccY-accY)<accYThreshold && abs(lastAccZ-accZ)<accZThreshold){
+        if(abs(lastGyroX-gyroX)<gyroXThreshold && abs(lastGyroY-gyroY)<gyroYThreshold && abs(lastGyroZ-gyroZ)<gyroZThreshold){
           engineIdleTime = millis();
           state = ENGINE_IDLE;
           break;
@@ -283,11 +286,11 @@ void state_machine_run()
 //      Serial.println(abs(lastGyroZ-gyroZ));
 //      Serial.print("temp: ");
 //      Serial.println(hic);
-      if(abs(lastAccX-accX)>1 || abs(lastAccY-accY)>1 || abs(lastAccZ-accZ)>1){
+      if(abs(lastAccX-accX)>accXThreshold || abs(lastAccY-accY)>accYThreshold || abs(lastAccZ-accZ)>accZThreshold){
         state = START;
         break;
       }
-      if(abs(lastGyroX-gyroX)>1 || abs(lastGyroY-gyroY)>1 || abs(lastGyroZ-gyroZ)>1){
+      if(abs(lastGyroX-gyroX)>gyroXThreshold || abs(lastGyroY-gyroY)>gyroYThreshold || abs(lastGyroZ-gyroZ)>gyroZThreshold){
         state = START;
         break;
       }
@@ -331,13 +334,13 @@ void state_machine_run()
         break;
       }
       getreadings();
-      if(abs(lastAccX-accX)>1 || abs(lastAccY-accY)>1 || abs(lastAccZ-accZ)>1){
+      if(abs(lastAccX-accX)>accXThreshold || abs(lastAccY-accY)>accYThreshold || abs(lastAccZ-accZ)>accZThreshold){
         state = START;
         stopBuzzer = true;
         pthread_join(buzzerThread, (void**)(&returnValue));
         break;
       }
-      if(abs(lastGyroX-gyroX)>1 || abs(lastGyroY-gyroY)>1 || abs(lastGyroZ-gyroZ)>1){
+      if(abs(lastGyroX-gyroX)>gyroXThreshold || abs(lastGyroY-gyroY)>gyroYThreshold || abs(lastGyroZ-gyroZ)>gyroZThreshold){
         state = START;
         stopBuzzer = true;
         pthread_join(buzzerThread, (void**)(&returnValue));
