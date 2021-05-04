@@ -1,7 +1,8 @@
 #include <Arduino.h>
-#include <Adafruit_MPU6050.h>
-#include <Adafruit_Sensor.h>
+//#include <Adafruit_MPU6050.h>
+//#include <Adafruit_Sensor.h>
 #include <pthread.h>
+#include<Wire.h>
 #include "DHT.h"
 
 //PINS
@@ -21,20 +22,28 @@ unsigned long SMSDelay = 10*1000;
 unsigned long temperatureDelay = 10000;
 
 // Create a sensor object
-Adafruit_MPU6050 mpu;
+//Adafruit_MPU6050 mpu;
+const int MPU_ADDR = 0x68; // I2C address of the MPU-6050
+int16_t disAccX, disAccY, disAccZ, disGyroX, disGyroY, disGyroZ;
+int squareDistanceAcc, squareDistanceGyro;
+//sensors_event_t a, g, temp;
 
-sensors_event_t a, g, temp;
-
-float gyroX, gyroY, gyroZ;
-float accX, accY, accZ;
-float lastGyroX, lastGyroY, lastGyroZ;
-float lastAccX, lastAccY, lastAccZ;
-float temperature;
+int16_t gyroX, gyroY, gyroZ;
+int16_t accX, accY, accZ;
+int16_t lastGyroX, lastGyroY, lastGyroZ;
+int16_t lastAccX, lastAccY, lastAccZ;
+int16_t mpuTemperature;
+int16_t temperature;
 
 //Gyroscope sensor deviation
-float gyroXerror = 0.07;
-float gyroYerror = 0.03;
-float gyroZerror = 0.01;
+float gyroXThreshold = 0.4;
+float gyroYThreshold = 0.4;
+float gyroZThreshold = 0.4;
+float accXThreshold = 0.4;
+float accYThreshold = 0.4;
+float accZThreshold = 0.4;
+int accThreshold = 100000;
+int gyroThreshold = 5000;
 
 //FSR
 int fsrValue = 0;
@@ -59,22 +68,22 @@ char ch = 176;
 
 //Thresholds
 #define weightThreshold 500
-#define hicThreshold 26
+#define hicThreshold 30
 #define IdleThresholdSMS 5*1000
 #define IdleSMSDelay 5*1000
 #define IdleThresholdBuzz 10*1000
 DHT dht(DHT_PIN, DHT_TYPE);
 
 // Init MPU6050
-void initMPU(){
-  if (!mpu.begin()) {
-    Serial.println("Failed to find MPU6050 chip");
-    while (1) {
-      delay(10);
-    }
-  }
-  Serial.println("MPU6050 Found!");
-}
+//void initMPU(){
+//  if (!mpu.begin()) {
+//    Serial.println("Failed to find MPU6050 chip");
+//    while (1) {
+//      delay(10);
+//    }
+//  }
+//  Serial.println("MPU6050 Found!");
+//}
 
 enum State_enum {RESET, START, SOFT_ALARM, ALARM, SMS, ENGINE_IDLE};
  
@@ -162,21 +171,33 @@ void Alarm(){
 }
 
 void getreadings(){
-  mpu.getEvent(&a, &g, &temp);
-
+//  mpu.getEvent(&a, &g, &temp);
+//
   lastAccX = accX;
   lastAccY = accY;
   lastAccZ = accZ;
-  accX = a.acceleration.x;
-  accY = a.acceleration.y;
-  accZ = a.acceleration.z;
-  
+//  accX = a.acceleration.x;
+//  accY = a.acceleration.y;
+//  accZ = a.acceleration.z;
+//  
   lastGyroX = gyroX;
   lastGyroY = gyroY;
   lastGyroZ = gyroZ;
-  gyroX = g.gyro.x;
-  gyroY = g.gyro.y;
-  gyroZ = g.gyro.z;
+//  gyroX = g.gyro.x;
+//  gyroY = g.gyro.y;
+//  gyroZ = g.gyro.z;
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x3B);  // starting with register 0x3B (ACCEL_XOUT_H)
+  Wire.endTransmission(true);
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.requestFrom((uint16_t)MPU_ADDR, (uint8_t)14, true); // request a total of 14 registers
+  accX = Wire.read() << 8 | Wire.read(); // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
+  accY = Wire.read() << 8 | Wire.read(); // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
+  accZ= Wire.read() << 8 | Wire.read(); // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
+  mpuTemperature = Wire.read() << 8 | Wire.read(); // 0x41 (TEMP_OUT_H) & 0x42 (TEMP_OUT_L)
+  gyroX = Wire.read() << 8 | Wire.read(); // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
+  gyroY = Wire.read() << 8 | Wire.read(); // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
+  gyroZ = Wire.read() << 8 | Wire.read(); // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
   
   // Read humidity
   h = dht.readHumidity();
@@ -191,11 +212,28 @@ void getreadings(){
   
   // Compute heat index in Celsius (isFahreheit = false)
   hic = dht.computeHeatIndex(t, h, false);
+  
+  disAccX = lastAccX-accX;
+  disAccY = lastAccY-accY;
+  disAccZ = lastAccZ-accZ;
+  disGyroX = lastGyroX-gyroX;
+  disGyroY = lastGyroY-gyroY;
+  disGyroZ = lastGyroZ-gyroZ;
+
+  squareDistanceAcc = disAccX*disAccX + disAccY*disAccY + disAccZ*disAccZ;
+  squareDistanceGyro =  disGyroX*disGyroX + disGyroY*disGyroY + disGyroZ*disGyroZ;
 }
 
 void setup(){
   Serial.begin(115200);
-  initMPU();
+//  initMPU();
+  Wire.begin(21, 22, 100000); // sda, scl
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x6B);  // PWR_MGMT_1 register
+  Wire.write(0);     // set to zero (wakes up the MPU-6050)
+  Wire.endTransmission(true);
+  Serial.println("Setup complete");
+//  init DHT
   dht.begin();
 //  pinMode(BUZZER_PIN,OUTPUT);
   ledcSetup(channel, freq, resolution);
@@ -234,6 +272,8 @@ void loop(){
 void state_machine_run() 
 {
   fsrValue = analogRead(FSR_PIN);
+//  Serial.print("Fsr value: ");
+//  Serial.println(fsrValue);
   switch(state)
   {
     case RESET:
@@ -250,8 +290,14 @@ void state_machine_run()
         break;
       }
       getreadings();
-      if(abs(lastAccX-accX)<1 && abs(lastAccY-accY)<1 && abs(lastAccZ-accZ)<1){
-        if(abs(lastGyroX-gyroX)<1 && abs(lastGyroY-gyroY)<1 && abs(lastGyroZ-gyroZ)<1){
+      Serial.print("temp: ");
+      Serial.println(hic);
+      Serial.print("square acc: ");
+      Serial.println(squareDistanceAcc);
+      Serial.print("square gyro: ");
+      Serial.println(squareDistanceGyro);
+      if(squareDistanceAcc<accThreshold){
+        if(squareDistanceGyro<gyroThreshold){
           engineIdleTime = millis();
           state = ENGINE_IDLE;
           break;
@@ -282,13 +328,21 @@ void state_machine_run()
 //      Serial.println(abs(lastGyroY-gyroY));
 //      Serial.print("lastGyroZ-gyroZ: ");
 //      Serial.println(abs(lastGyroZ-gyroZ));
-//      Serial.print("temp: ");
-//      Serial.println(hic);
-      if(abs(lastAccX-accX)>1 || abs(lastAccY-accY)>1 || abs(lastAccZ-accZ)>1){
+      Serial.print("temp: ");
+      Serial.println(hic);
+      Serial.print("square acc: ");
+      Serial.println(squareDistanceAcc);
+      Serial.print("square gyro: ");
+      Serial.println(squareDistanceGyro);
+
+      
+//      if(abs(lastAccX-accX)>accXThreshold || abs(lastAccY-accY)>accYThreshold || abs(lastAccZ-accZ)>accZThreshold){
+      if(squareDistanceAcc>accThreshold){
         state = START;
         break;
       }
-      if(abs(lastGyroX-gyroX)>1 || abs(lastGyroY-gyroY)>1 || abs(lastGyroZ-gyroZ)>1){
+//      if(abs(lastGyroX-gyroX)>gyroXThreshold || abs(lastGyroY-gyroY)>gyroYThreshold || abs(lastGyroZ-gyroZ)>gyroZThreshold){
+      if(squareDistanceGyro>gyroThreshold){
         state = START;
         break;
       }
@@ -333,13 +387,15 @@ void state_machine_run()
         break;
       }
       getreadings();
-      if(abs(lastAccX-accX)>1 || abs(lastAccY-accY)>1 || abs(lastAccZ-accZ)>1){
+//      if(abs(lastAccX-accX)>accXThreshold || abs(lastAccY-accY)>accYThreshold || abs(lastAccZ-accZ)>accZThreshold){
+      if(squareDistanceAcc>accThreshold){
         state = START;
         stopBuzzer = true;
         pthread_join(buzzerThread, (void**)(&returnValue));
         break;
       }
-      if(abs(lastGyroX-gyroX)>1 || abs(lastGyroY-gyroY)>1 || abs(lastGyroZ-gyroZ)>1){
+//      if(abs(lastGyroX-gyroX)>gyroXThreshold || abs(lastGyroY-gyroY)>gyroYThreshold || abs(lastGyroZ-gyroZ)>gyroZThreshold){
+      if(squareDistanceGyro>gyroThreshold){
         state = START;
         stopBuzzer = true;
         pthread_join(buzzerThread, (void**)(&returnValue));
