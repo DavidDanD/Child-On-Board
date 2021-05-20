@@ -38,18 +38,18 @@ void loop() {
   disGyroX = lastGyX-GyX;
   disGyroY = lastGyY-GyY;
   disGyroZ = lastGyZ-GyZ;
-  Serial.print("AccX: ");
-  Serial.print(disAccX); Serial.print(" , ");
-  Serial.print("GyroX: ");
-  Serial.println(disGyroX);
-  Serial.print("AccY: ");
-  Serial.print(disAccY); Serial.print(" , ");
-  Serial.print("GyroY: ");
-  Serial.println(disGyroY);
-  Serial.print("AccZ: ");
-  Serial.print(disAccZ); Serial.print(" , ");
-  Serial.print("GyroZ: ");
-  Serial.println(disGyroZ);
+//  Serial.print("AccX: ");
+//  Serial.print(disAccX); Serial.print(" , ");
+//  Serial.print("GyroX: ");
+//  Serial.println(disGyroX);
+//  Serial.print("AccY: ");
+//  Serial.print(disAccY); Serial.print(" , ");
+//  Serial.print("GyroY: ");
+//  Serial.println(disGyroY);
+//  Serial.print("AccZ: ");
+//  Serial.print(disAccZ); Serial.print(" , ");
+//  Serial.print("GyroZ: ");
+//  Serial.println(disGyroZ);
 
   lastAcX = AcX;
   lastAcY = AcY;
@@ -59,7 +59,15 @@ void loop() {
   lastGyZ = GyZ;
   squareDistanceAcc = disAccX*disAccX + disAccY*disAccY + disAccZ*disAccZ;
   squareDistanceGyro =  disGyroX*disGyroX + disGyroY*disGyroY + disGyroZ*disGyroZ;
+  if(squareDistanceAcc < 100000)
+  {
+  Serial.println("**************************************************************************************8");     
+  }
   
+  if(squareDistanceGyro < 5000)
+  {
+  Serial.println("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$");     
+  }
   Serial.print("Acc square distance: ");
   Serial.print(squareDistanceAcc); Serial.print(" , ");
   Serial.print("Gyro square distance: ");
