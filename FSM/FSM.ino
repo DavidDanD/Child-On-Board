@@ -1,15 +1,8 @@
 #include <Arduino.h>
-//#include <Adafruit_MPU6050.h>
-//#include <Adafruit_Sensor.h>
 #include <pthread.h>
-#include<Wire.h>
+#include <Wire.h>
 #include "DHT.h"
-
-//PINS
-#define FSR_PIN 34
-#define DHT_PIN 15
-#define BUZZER_PIN 25
-#define DHT_TYPE DHT22
+#include "FSM.h"
 
 // Timer variables
 unsigned long lastTime = 0;  
@@ -61,29 +54,11 @@ int buzzerParams[] = {0,0,0};
 
 //DHT
 float h,t,hic;
+DHT dht(DHT_PIN, DHT_TYPE);
 
 //SIM
 char *msg;
 char ch = 176;
-
-//Thresholds
-#define weightThreshold 500
-#define hicThreshold 30
-#define IdleThresholdSMS 5*1000
-#define IdleSMSDelay 5*1000
-#define IdleThresholdBuzz 10*1000
-DHT dht(DHT_PIN, DHT_TYPE);
-
-// Init MPU6050
-//void initMPU(){
-//  if (!mpu.begin()) {
-//    Serial.println("Failed to find MPU6050 chip");
-//    while (1) {
-//      delay(10);
-//    }
-//  }
-//  Serial.println("MPU6050 Found!");
-//}
 
 enum State_enum {RESET, START, SOFT_ALARM, ALARM, SMS, ENGINE_IDLE};
  
@@ -94,29 +69,6 @@ uint8_t state = RESET;
 // SIM card PIN (leave empty, if not defined)
 const char simPIN[]   = "";
 
-// Your phone number to send SMS: + (plus sign) and country code, for Israel +972, followed by phone number
-#define SMS_TARGET  "+972546591910"
-
-// Configure TinyGSM library
-#define TINY_GSM_MODEM_SIM800      // Modem is SIM800
-#define TINY_GSM_RX_BUFFER   1024  // Set RX buffer to 1Kb
-
-#include <TinyGsmClient.h>
-
-// TTGO T-Call pins
-#define MODEM_RST            5
-#define MODEM_PWKEY          4
-#define MODEM_POWER_ON       23
-#define MODEM_TX             27
-#define MODEM_RX             26
-
-// Set serial for debug console (to Serial Monitor, default speed 115200)
-#define SerialMon Serial
-// Set serial for AT commands (to SIM800 module)
-#define SerialAT  Serial1
-
-// Define the serial console for debug prints, if needed
-//#define DUMP_AT_COMMANDS
 
 #ifdef DUMP_AT_COMMANDS
   #include <StreamDebugger.h>
@@ -170,48 +122,8 @@ void Alarm(){
   pthread_create(&buzzerThread, NULL, alarmThread, NULL);
 }
 
-void getreadings(){
-//  mpu.getEvent(&a, &g, &temp);
-//
-  lastAccX = accX;
-  lastAccY = accY;
-  lastAccZ = accZ;
-//  accX = a.acceleration.x;
-//  accY = a.acceleration.y;
-//  accZ = a.acceleration.z;
-//  
-  lastGyroX = gyroX;
-  lastGyroY = gyroY;
-  lastGyroZ = gyroZ;
-//  gyroX = g.gyro.x;
-//  gyroY = g.gyro.y;
-//  gyroZ = g.gyro.z;
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.write(0x3B);  // starting with register 0x3B (ACCEL_XOUT_H)
-  Wire.endTransmission(true);
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.requestFrom((uint16_t)MPU_ADDR, (uint8_t)14, true); // request a total of 14 registers
-  accX = Wire.read() << 8 | Wire.read(); // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
-  accY = Wire.read() << 8 | Wire.read(); // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
-  accZ= Wire.read() << 8 | Wire.read(); // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
-  mpuTemperature = Wire.read() << 8 | Wire.read(); // 0x41 (TEMP_OUT_H) & 0x42 (TEMP_OUT_L)
-  gyroX = Wire.read() << 8 | Wire.read(); // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
-  gyroY = Wire.read() << 8 | Wire.read(); // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
-  gyroZ = Wire.read() << 8 | Wire.read(); // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
-  
-  // Read humidity
-  h = dht.readHumidity();
-  // Read temperature as Celsius (the default)
-  t = dht.readTemperature();
-  // Check if temperature read failed.
-  
-  if (isnan(t) || isnan(h)) {
-    Serial.println(F("Failed to read from DHT sensor!"));
-    return;
-  }
-  
-  // Compute heat index in Celsius (isFahreheit = false)
-  hic = dht.computeHeatIndex(t, h, false);
+
+void calculateSquareDistance() {
   
   disAccX = lastAccX-accX;
   disAccY = lastAccY-accY;
@@ -222,6 +134,53 @@ void getreadings(){
 
   squareDistanceAcc = disAccX*disAccX + disAccY*disAccY + disAccZ*disAccZ;
   squareDistanceGyro =  disGyroX*disGyroX + disGyroY*disGyroY + disGyroZ*disGyroZ;
+}
+
+void calculateHeatIndex() {
+  // Check if temperature read failed.
+  
+  if (isnan(t) || isnan(h)) {
+    Serial.println(F("Failed to read from DHT sensor!"));
+    return;
+  }
+  
+  // Compute heat index in Celsius (isFahreheit = false)
+  hic = dht.computeHeatIndex(t, h, false);
+}
+
+void getreadings(){
+  
+  lastAccX = accX;
+  lastAccY = accY;
+  lastAccZ = accZ;
+  
+  lastGyroX = gyroX;
+  lastGyroY = gyroY;
+  lastGyroZ = gyroZ;
+  
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x3B);  // starting with register 0x3B (ACCEL_XOUT_H)
+  Wire.endTransmission(true);
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.requestFrom((uint16_t)MPU_ADDR, (uint8_t)14, true); // request a total of 14 registers
+  
+  accX = Wire.read() << 8 | Wire.read(); // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
+  accY = Wire.read() << 8 | Wire.read(); // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
+  accZ = Wire.read() << 8 | Wire.read(); // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
+  
+  gyroX = Wire.read() << 8 | Wire.read(); // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
+  gyroY = Wire.read() << 8 | Wire.read(); // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
+  gyroZ = Wire.read() << 8 | Wire.read(); // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
+  
+  mpuTemperature = Wire.read() << 8 | Wire.read(); // 0x41 (TEMP_OUT_H) & 0x42 (TEMP_OUT_L)
+  
+  // Read humidity
+  h = dht.readHumidity();
+  // Read temperature as Celsius (the default)
+  t = dht.readTemperature();
+
+  calculateHeatIndex();
+  calculateSquareDistance();
 }
 
 void setup(){
@@ -316,18 +275,6 @@ void state_machine_run()
         state = RESET;
       }
       getreadings();
-//      Serial.print("lastAccX-accX: ");
-//      Serial.println(abs(lastAccX-accX));
-//      Serial.print("lastAccY-accY: ");
-//      Serial.println(abs(lastAccY-accY));
-//      Serial.print("lastAccZ-accZ: ");
-//      Serial.println(abs(lastAccZ-accZ));
-//      Serial.print("lastGyroX-gyroX: ");
-//      Serial.println(abs(lastGyroX-gyroX));
-//      Serial.print("lastGyroY-gyroY: ");
-//      Serial.println(abs(lastGyroY-gyroY));
-//      Serial.print("lastGyroZ-gyroZ: ");
-//      Serial.println(abs(lastGyroZ-gyroZ));
       Serial.print("temp: ");
       Serial.println(hic);
       Serial.print("square acc: ");
