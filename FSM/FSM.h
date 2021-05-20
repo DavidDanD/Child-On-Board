@@ -55,5 +55,7 @@ void *alarmThread(void* );
 void sendMsg(String);
 void getreadings();
 void readMpuValues();
+void readDhtValues();
 void calculateHeatIndex();
 void calculateSquareDistance();
+void printSensorsValues();

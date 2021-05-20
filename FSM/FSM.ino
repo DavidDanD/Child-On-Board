@@ -26,8 +26,8 @@ int16_t mpuTemperature;
 int16_t temperature;
 
 //Gyroscope sensor deviation
-int accThreshold = 100000;
-int gyroThreshold = 5000;
+int accThreshold = 1000000;
+int gyroThreshold = 50000;
 
 //FSR
 int fsrValue = 0;
@@ -43,7 +43,8 @@ bool stopBuzzer = true;
 int buzzerParams[] = {0,0,0};
 
 //DHT
-int hicThreshold = 30;
+int hicMinThreshold = 30;
+int hicMaxThreshold = 35;
 float h,t,hic;
 DHT dht(DHT_PIN, DHT_TYPE);
 
@@ -51,9 +52,7 @@ DHT dht(DHT_PIN, DHT_TYPE);
 char *msg;
 char ch = 176;
 
-enum State_enum {RESET, START, SOFT_ALARM, ALARM, SMS, ENGINE_IDLE};
- 
-void state_machine_run();
+enum State_enum {RESET, START, SOFT_ALARM, ALARM, SMS, ENGINE_OFF};
  
 uint8_t state = RESET;
 
@@ -124,40 +123,37 @@ void state_machine_run()
         state = RESET;
         break;
       }
+      
       getreadings();
-      Serial.print("temp: ");
-      Serial.println(hic);
-      Serial.print("square acc: ");
-      Serial.println(squareDistanceAcc);
-      Serial.print("square gyro: ");
-      Serial.println(squareDistanceGyro);
       if(squareDistanceAcc<accThreshold){
         if(squareDistanceGyro<gyroThreshold){
           engineIdleTime = millis();
-          state = ENGINE_IDLE;
+          state = ENGINE_OFF;
           break;
         }
       }
-      if(hic >= hicThreshold){
-        asprintf(&msg, "High temperature: %.1f degrees Celsuis.", hic);
-        sendMsg(msg);
+      
+      if(hic >= hicMinThreshold){
         state = SOFT_ALARM;
       }
+      
+      Serial.println("START END");
       break;
 
-    case ENGINE_IDLE:
-      Serial.println("ENGINE_IDLE");
+    case ENGINE_OFF:
+      Serial.println("ENGINE_OFF");
+
+      // Check if there is child in the car
       if(fsrValue < fsrThreshold){
         state = RESET;
+        break;
       }
-      getreadings();
-      Serial.print("temp: ");
-      Serial.println(hic);
-      Serial.print("square acc: ");
-      Serial.println(squareDistanceAcc);
-      Serial.print("square gyro: ");
-      Serial.println(squareDistanceGyro);
 
+      // Read gyroscope, accelerometer and thermometer values
+      getreadings();
+      printSensorsValues();
+
+      // Check for car movement
       if(squareDistanceAcc>accThreshold){
         state = START;
         break;
@@ -166,11 +162,13 @@ void state_machine_run()
         state = START;
         break;
       }
-      if(hic >= hicThreshold){
+      
+      if(hic >= hicMinThreshold){
         asprintf(&msg, "High temperature: %.1f degrees Celsuis.", hic);
         sendMsg(msg);
         state = ALARM;
       }
+      
       if((millis()-engineIdleTime) > IDLE_THRESHOLD_SMS){
         if((millis()-engineIdleSMSTime) > IDLE_DELAY_SMS){
           sendMsg("Child on board");
@@ -185,16 +183,30 @@ void state_machine_run()
       
     case SOFT_ALARM:
       Serial.println("SOFT_ALARM");
+      asprintf(&msg, "High temperature: %.1f degrees Celsuis.", hic);
+      sendMsg(msg);
       softAlarm();
+      
       if(fsrValue < fsrThreshold){
         state = RESET;
+        break;
       }
       else{
         state = START;
       }
+      
       delay(SOFT_ALARM_DELAY);
       stopBuzzer = true;
       pthread_join(buzzerThread, (void**)(&returnValue));
+      
+      readDhtValues();
+      calculateHeatIndex();
+      if(hic >= hicMaxThreshold){
+        asprintf(&msg, "Extremely High temperature: %.1f degrees Celsuis.", hic);
+        sendMsg(msg);
+        state = ALARM;
+      }
+      
       break;
  
     case ALARM:
@@ -206,21 +218,28 @@ void state_machine_run()
         pthread_join(buzzerThread, (void**)(&returnValue));
         break;
       }
-      getreadings();
-      if(squareDistanceAcc>accThreshold){
-        state = START;
-        stopBuzzer = true;
-        pthread_join(buzzerThread, (void**)(&returnValue));
-        break;
-      }
-      if(squareDistanceGyro>gyroThreshold){
-        state = START;
-        stopBuzzer = true;
-        pthread_join(buzzerThread, (void**)(&returnValue));
-        break;
-      }
-      if((millis() - lastTimeSMS) > SMSDelay){
+      
+      if ((millis() - lastTimeSMS) > SMSDelay) {
         sendMsg("Child on board");
+      }
+      
+      getreadings();
+      
+      if (hic >= hicMaxThreshold){
+        break;
+      }
+      
+      if (squareDistanceAcc>accThreshold) {
+        state = START;
+        stopBuzzer = true;
+        pthread_join(buzzerThread, (void**)(&returnValue));
+        break;
+      }
+      if (squareDistanceGyro>gyroThreshold) {
+        state = START;
+        stopBuzzer = true;
+        pthread_join(buzzerThread, (void**)(&returnValue));
+        break;
       }
       break;
 
@@ -247,16 +266,18 @@ void alarm(){
 }
 
 void *alarmThread(void* args){
-
+  int currentTone = 0;
   while(!stopBuzzer){
-    ledcWriteTone(channel, buzzerParams[0]);
+    ledcWriteTone(channel, buzzerParams[currentTone]);
     delay(buzzerParams[2]);
-    ledcWriteTone(channel, buzzerParams[1]);
-    delay(buzzerParams[2]);
+    currentTone = 1-currentTone;
+    fsrValue = analogRead(FSR_PIN);
+    if (fsrValue < fsrThreshold) {
+      stopBuzzer = true;
+    }
   }
   ledcWriteTone(channel, 0);
   pthread_exit(NULL);
-  
 }
 
 
@@ -282,26 +303,10 @@ void getreadings(){
   lastGyroZ = gyroZ;
 
   readMpuValues();
-  
-  // Read humidity
-  h = dht.readHumidity();
-  // Read temperature as Celsius (the default)
-  t = dht.readTemperature();
+  readDhtValues();
 
   calculateHeatIndex();
   calculateSquareDistance();
-}
-
-void calculateHeatIndex() {
-  
-  // Check if temperature read failed.
-  if (isnan(t) || isnan(h)) {
-    Serial.println(F("Failed to read from DHT sensor!"));
-    return;
-  }
-  
-  // Compute heat index in Celsius (isFahreheit = false)
-  hic = dht.computeHeatIndex(t, h, false);
 }
 
 void readMpuValues() {
@@ -322,6 +327,13 @@ void readMpuValues() {
   mpuTemperature = wireReadValue; // 0x41 (TEMP_OUT_H) & 0x42 (TEMP_OUT_L)
 }
 
+void readDhtValues() {
+  // Read humidity
+  h = dht.readHumidity();
+  // Read temperature as Celsius (the default)
+  t = dht.readTemperature();
+}
+
 void calculateSquareDistance() {
   
   disAccX = lastAccX-accX;
@@ -333,4 +345,25 @@ void calculateSquareDistance() {
 
   squareDistanceAcc = disAccX*disAccX + disAccY*disAccY + disAccZ*disAccZ;
   squareDistanceGyro =  disGyroX*disGyroX + disGyroY*disGyroY + disGyroZ*disGyroZ;
+}
+
+void calculateHeatIndex() {
+  
+  // Check if temperature read failed.
+  if (isnan(t) || isnan(h)) {
+    Serial.println(F("Failed to read from DHT sensor!"));
+    return;
+  }
+  
+  // Compute heat index in Celsius (isFahreheit = false)
+  hic = dht.computeHeatIndex(t, h, false);
+}
+
+void printSensorsValues() {
+    Serial.print("temp: ");
+    Serial.println(hic);
+    Serial.print("square acc: ");
+    Serial.println(squareDistanceAcc);
+    Serial.print("square gyro: ");
+    Serial.println(squareDistanceGyro);
 }
