@@ -15,11 +15,8 @@ unsigned long SMSDelay = 10*1000;
 unsigned long temperatureDelay = 10000;
 
 // Create a sensor object
-//Adafruit_MPU6050 mpu;
-const int MPU_ADDR = 0x68; // I2C address of the MPU-6050
 int16_t disAccX, disAccY, disAccZ, disGyroX, disGyroY, disGyroZ;
 int squareDistanceAcc, squareDistanceGyro;
-//sensors_event_t a, g, temp;
 
 int16_t gyroX, gyroY, gyroZ;
 int16_t accX, accY, accZ;
@@ -29,12 +26,6 @@ int16_t mpuTemperature;
 int16_t temperature;
 
 //Gyroscope sensor deviation
-float gyroXThreshold = 0.4;
-float gyroYThreshold = 0.4;
-float gyroZThreshold = 0.4;
-float accXThreshold = 0.4;
-float accYThreshold = 0.4;
-float accZThreshold = 0.4;
 int accThreshold = 100000;
 int gyroThreshold = 5000;
 
@@ -43,7 +34,6 @@ int fsrValue = 0;
 int fsrThreshold = 500;
 
 //Buzzer
-#define SOFT_ALARM_DELAY 5*1000
 int freq = 0;
 int channel = 0;
 int resolution = 8;
@@ -53,6 +43,7 @@ bool stopBuzzer = true;
 int buzzerParams[] = {0,0,0};
 
 //DHT
+int hicThreshold = 30;
 float h,t,hic;
 DHT dht(DHT_PIN, DHT_TYPE);
 
@@ -70,124 +61,11 @@ uint8_t state = RESET;
 const char simPIN[]   = "";
 
 
-#ifdef DUMP_AT_COMMANDS
-  #include <StreamDebugger.h>
-  StreamDebugger debugger(SerialAT, SerialMon);
-  TinyGsm modem(debugger);
-#else
-  TinyGsm modem(SerialAT);
-#endif
- 
-void sendMsg(String smsMessage){
-  // To send an SMS, call modem.sendSMS(SMS_TARGET, smsMessage)
-//  String smsMessage = "Hello from ESP32!";
-  if(modem.sendSMS(SMS_TARGET, smsMessage)){
-    SerialMon.println(smsMessage);
-  }
-  else{
-    SerialMon.println("SMS failed to send");
-  }
-  lastTimeSMS = millis();
-}
-
-void *alarmThread(void* args){
-
-  while(!stopBuzzer){
-    ledcWriteTone(channel, buzzerParams[0]);
-    delay(buzzerParams[2]);
-    ledcWriteTone(channel, buzzerParams[1]);
-    delay(buzzerParams[2]);
-  }
-  ledcWriteTone(channel, 0);
-  pthread_exit(NULL);
-  
-}
-
-void softAlarm(){
-  buzzerParams[0] = 500;
-  buzzerParams[1] = 0;
-  buzzerParams[2] = 1000;
-  stopBuzzer = false;
-  pthread_create(&buzzerThread, NULL, alarmThread, NULL);
-}
-
-void Alarm(){
-  if(!stopBuzzer){
-    return;
-  }
-  buzzerParams[0] = 2000;
-  buzzerParams[1] = 500;
-  buzzerParams[2] = 300;
-  stopBuzzer = false;
-  pthread_create(&buzzerThread, NULL, alarmThread, NULL);
-}
-
-
-void calculateSquareDistance() {
-  
-  disAccX = lastAccX-accX;
-  disAccY = lastAccY-accY;
-  disAccZ = lastAccZ-accZ;
-  disGyroX = lastGyroX-gyroX;
-  disGyroY = lastGyroY-gyroY;
-  disGyroZ = lastGyroZ-gyroZ;
-
-  squareDistanceAcc = disAccX*disAccX + disAccY*disAccY + disAccZ*disAccZ;
-  squareDistanceGyro =  disGyroX*disGyroX + disGyroY*disGyroY + disGyroZ*disGyroZ;
-}
-
-void calculateHeatIndex() {
-  // Check if temperature read failed.
-  
-  if (isnan(t) || isnan(h)) {
-    Serial.println(F("Failed to read from DHT sensor!"));
-    return;
-  }
-  
-  // Compute heat index in Celsius (isFahreheit = false)
-  hic = dht.computeHeatIndex(t, h, false);
-}
-
-void getreadings(){
-  
-  lastAccX = accX;
-  lastAccY = accY;
-  lastAccZ = accZ;
-  
-  lastGyroX = gyroX;
-  lastGyroY = gyroY;
-  lastGyroZ = gyroZ;
-  
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.write(0x3B);  // starting with register 0x3B (ACCEL_XOUT_H)
-  Wire.endTransmission(true);
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.requestFrom((uint16_t)MPU_ADDR, (uint8_t)14, true); // request a total of 14 registers
-  
-  accX = Wire.read() << 8 | Wire.read(); // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
-  accY = Wire.read() << 8 | Wire.read(); // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
-  accZ = Wire.read() << 8 | Wire.read(); // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
-  
-  gyroX = Wire.read() << 8 | Wire.read(); // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
-  gyroY = Wire.read() << 8 | Wire.read(); // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
-  gyroZ = Wire.read() << 8 | Wire.read(); // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
-  
-  mpuTemperature = Wire.read() << 8 | Wire.read(); // 0x41 (TEMP_OUT_H) & 0x42 (TEMP_OUT_L)
-  
-  // Read humidity
-  h = dht.readHumidity();
-  // Read temperature as Celsius (the default)
-  t = dht.readTemperature();
-
-  calculateHeatIndex();
-  calculateSquareDistance();
-}
-
 void setup(){
   Serial.begin(115200);
 //  initMPU();
-  Wire.begin(21, 22, 100000); // sda, scl
-  Wire.beginTransmission(MPU_ADDR);
+  Wire.begin(SDA_PIN, SCL_PIN, MPU6050_FREQ); // sda, scl, clock speed
+  Wire.beginTransmission(MPU6050_ADDR);
   Wire.write(0x6B);  // PWR_MGMT_1 register
   Wire.write(0);     // set to zero (wakes up the MPU-6050)
   Wire.endTransmission(true);
@@ -231,20 +109,18 @@ void loop(){
 void state_machine_run() 
 {
   fsrValue = analogRead(FSR_PIN);
-//  Serial.print("Fsr value: ");
-//  Serial.println(fsrValue);
   switch(state)
   {
     case RESET:
       Serial.println("RESET");
-      if(fsrValue >= weightThreshold){
+      if(fsrValue >= fsrThreshold){
         state = START;
       }
       break;
        
     case START:
       Serial.println("START");
-      if(fsrValue < weightThreshold){
+      if(fsrValue < fsrThreshold){
         state = RESET;
         break;
       }
@@ -271,7 +147,7 @@ void state_machine_run()
 
     case ENGINE_IDLE:
       Serial.println("ENGINE_IDLE");
-      if(fsrValue < weightThreshold){
+      if(fsrValue < fsrThreshold){
         state = RESET;
       }
       getreadings();
@@ -282,13 +158,10 @@ void state_machine_run()
       Serial.print("square gyro: ");
       Serial.println(squareDistanceGyro);
 
-      
-//      if(abs(lastAccX-accX)>accXThreshold || abs(lastAccY-accY)>accYThreshold || abs(lastAccZ-accZ)>accZThreshold){
       if(squareDistanceAcc>accThreshold){
         state = START;
         break;
       }
-//      if(abs(lastGyroX-gyroX)>gyroXThreshold || abs(lastGyroY-gyroY)>gyroYThreshold || abs(lastGyroZ-gyroZ)>gyroZThreshold){
       if(squareDistanceGyro>gyroThreshold){
         state = START;
         break;
@@ -298,13 +171,13 @@ void state_machine_run()
         sendMsg(msg);
         state = ALARM;
       }
-      if((millis()-engineIdleTime) > IdleThresholdSMS){
-        if((millis()-engineIdleSMSTime) > IdleSMSDelay){
+      if((millis()-engineIdleTime) > IDLE_THRESHOLD_SMS){
+        if((millis()-engineIdleSMSTime) > IDLE_DELAY_SMS){
           sendMsg("Child on board");
           engineIdleSMSTime = millis();
         }
       }
-      if((millis()-engineIdleTime) > IdleThresholdBuzz){
+      if((millis()-engineIdleTime) > IDLE_THRESHOLD_BUZZER){
         sendMsg("Child on board");
         state = ALARM;
       }
@@ -313,7 +186,7 @@ void state_machine_run()
     case SOFT_ALARM:
       Serial.println("SOFT_ALARM");
       softAlarm();
-      if(fsrValue < weightThreshold){
+      if(fsrValue < fsrThreshold){
         state = RESET;
       }
       else{
@@ -326,22 +199,20 @@ void state_machine_run()
  
     case ALARM:
       Serial.println("ALARM");
-      Alarm();
-      if(fsrValue < weightThreshold){
+      alarm();
+      if(fsrValue < fsrThreshold){
         state = RESET;
         stopBuzzer = true;
         pthread_join(buzzerThread, (void**)(&returnValue));
         break;
       }
       getreadings();
-//      if(abs(lastAccX-accX)>accXThreshold || abs(lastAccY-accY)>accYThreshold || abs(lastAccZ-accZ)>accZThreshold){
       if(squareDistanceAcc>accThreshold){
         state = START;
         stopBuzzer = true;
         pthread_join(buzzerThread, (void**)(&returnValue));
         break;
       }
-//      if(abs(lastGyroX-gyroX)>gyroXThreshold || abs(lastGyroY-gyroY)>gyroYThreshold || abs(lastGyroZ-gyroZ)>gyroZThreshold){
       if(squareDistanceGyro>gyroThreshold){
         state = START;
         stopBuzzer = true;
@@ -354,4 +225,112 @@ void state_machine_run()
       break;
 
   }
+}
+
+void softAlarm(){
+  buzzerParams[0] = 500;
+  buzzerParams[1] = 0;
+  buzzerParams[2] = 1000;
+  stopBuzzer = false;
+  pthread_create(&buzzerThread, NULL, alarmThread, NULL);
+}
+
+void alarm(){
+  if(!stopBuzzer){
+    return;
+  }
+  buzzerParams[0] = 2000;
+  buzzerParams[1] = 500;
+  buzzerParams[2] = 300;
+  stopBuzzer = false;
+  pthread_create(&buzzerThread, NULL, alarmThread, NULL);
+}
+
+void *alarmThread(void* args){
+
+  while(!stopBuzzer){
+    ledcWriteTone(channel, buzzerParams[0]);
+    delay(buzzerParams[2]);
+    ledcWriteTone(channel, buzzerParams[1]);
+    delay(buzzerParams[2]);
+  }
+  ledcWriteTone(channel, 0);
+  pthread_exit(NULL);
+  
+}
+
+
+void sendMsg(String smsMessage){
+  // To send an SMS, call modem.sendSMS(SMS_TARGET, smsMessage)
+  if(modem.sendSMS(SMS_TARGET, smsMessage)){
+    SerialMon.println(smsMessage);
+  }
+  else{
+    SerialMon.println("SMS failed to send");
+  }
+  lastTimeSMS = millis();
+}
+
+void getreadings(){
+  
+  lastAccX = accX;
+  lastAccY = accY;
+  lastAccZ = accZ;
+  
+  lastGyroX = gyroX;
+  lastGyroY = gyroY;
+  lastGyroZ = gyroZ;
+
+  readMpuValues();
+  
+  // Read humidity
+  h = dht.readHumidity();
+  // Read temperature as Celsius (the default)
+  t = dht.readTemperature();
+
+  calculateHeatIndex();
+  calculateSquareDistance();
+}
+
+void calculateHeatIndex() {
+  
+  // Check if temperature read failed.
+  if (isnan(t) || isnan(h)) {
+    Serial.println(F("Failed to read from DHT sensor!"));
+    return;
+  }
+  
+  // Compute heat index in Celsius (isFahreheit = false)
+  hic = dht.computeHeatIndex(t, h, false);
+}
+
+void readMpuValues() {
+  Wire.beginTransmission(MPU6050_ADDR);
+  Wire.write(0x3B);  // starting with register 0x3B (ACCEL_XOUT_H)
+  Wire.endTransmission(true);
+  Wire.beginTransmission(MPU6050_ADDR);
+  Wire.requestFrom((uint16_t)MPU6050_ADDR, (uint8_t)14, true); // request a total of 14 registers
+  
+  accX = wireReadValue; // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
+  accY = wireReadValue; // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
+  accZ = wireReadValue; // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
+  
+  gyroX = wireReadValue; // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
+  gyroY = wireReadValue; // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
+  gyroZ = wireReadValue; // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
+  
+  mpuTemperature = wireReadValue; // 0x41 (TEMP_OUT_H) & 0x42 (TEMP_OUT_L)
+}
+
+void calculateSquareDistance() {
+  
+  disAccX = lastAccX-accX;
+  disAccY = lastAccY-accY;
+  disAccZ = lastAccZ-accZ;
+  disGyroX = lastGyroX-gyroX;
+  disGyroY = lastGyroY-gyroY;
+  disGyroZ = lastGyroZ-gyroZ;
+
+  squareDistanceAcc = disAccX*disAccX + disAccY*disAccY + disAccZ*disAccZ;
+  squareDistanceGyro =  disGyroX*disGyroX + disGyroY*disGyroY + disGyroZ*disGyroZ;
 }
