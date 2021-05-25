@@ -51,13 +51,27 @@ DHT dht(DHT_PIN, DHT_TYPE);
 //SIM
 char *msg;
 char ch = 176;
+TinyGsmClient client(modem);
+const char apn[]      = "uinternet"; // APN (example: internet.vodafone.pt) use https://wiki.apnchanger.org
+const char gprsUser[] = ""; // GPRS User
+const char gprsPass[] = ""; // GPRS Password
+const char simPIN[]   = "";
+
+//WIFI
+const char* ssid     = "David";
+const char* password = "id29072018";
+
+//SERVER
+const char* serverName = "http://cdr.mcr.mybluehost.me/post-data.php";
+String apiKeyValue = "tPmAT5Ab3j7F9";
+const char server[] = "cdr.mcr.mybluehost.me"; // domain name: example.com, maker.ifttt.com, etc
+const char resource[] = "/post-data.php";         // resource path, for example: /post-data.php
+const int  port = 80;                             // server port number
+
 
 enum State_enum {RESET, START, SOFT_ALARM, ALARM, SMS, ENGINE_OFF};
  
 uint8_t state = RESET;
-
-// SIM card PIN (leave empty, if not defined)
-const char simPIN[]   = "";
 
 
 void setup(){
@@ -74,6 +88,16 @@ void setup(){
 //  pinMode(BUZZER_PIN,OUTPUT);
   ledcSetup(channel, freq, resolution);
   ledcAttachPin(BUZZER_PIN, channel);
+//  init WIFI
+  WiFi.begin(ssid, password);
+  Serial.println("Connecting");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("Connected to WiFi network with IP Address: ");
+  Serial.println(WiFi.localIP());
   
   // Set modem reset, enable, power pins
   pinMode(MODEM_PWKEY, OUTPUT);
@@ -101,10 +125,11 @@ void setup(){
  
 void loop(){
   state_machine_run();
- 
+//  publish_data_to_cloud();
+  publish_data_to_cloud_SIM();
   delay(500);
 }
- 
+
 void state_machine_run() 
 {
   fsrValue = analogRead(FSR_PIN);
@@ -366,4 +391,79 @@ void printSensorsValues() {
     Serial.println(squareDistanceAcc);
     Serial.print("square gyro: ");
     Serial.println(squareDistanceGyro);
+}
+
+void publish_data_to_cloud()
+{
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(serverName);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    String httpRequestData = "api_key=" + apiKeyValue + "&temperature=" + String(t)
+                             + "&weight=" + String(fsrValue) + "&gyro=" + String(squareDistanceGyro)
+                             + "&accelerometer=" + String(squareDistanceAcc) + "&state=" + String(state) + "";
+
+    Serial.print("httpRequestData: ");
+    Serial.println(httpRequestData);
+    int httpResponseCode = http.POST(httpRequestData);
+    if (httpResponseCode > 0) {
+      Serial.print("HTTP Response code: ");
+      Serial.println(httpResponseCode);
+    }
+    else {
+      Serial.print("Error code: ");
+      Serial.println(httpResponseCode);
+    }
+    // Free resources
+    http.end();
+  }
+  else {
+    Serial.println("WiFi Disconnected");
+  }
+}
+
+void publish_data_to_cloud_SIM() {
+//  SerialMon.print("Connecting to APN: ");
+//  SerialMon.print(apn);
+  if (!modem.gprsConnect(apn, gprsUser, gprsPass)) {
+//    SerialMon.println(" fail");
+  }
+  else {
+//    SerialMon.println(" OK");
+//    
+//    SerialMon.print("Connecting to ");
+//    SerialMon.print(server);
+    if (!client.connect(server, port)) {
+//      SerialMon.println(" fail");
+    }
+    else {
+//      SerialMon.println(" OK");
+//      SerialMon.println("Performing HTTP POST request...");
+      // Prepare your HTTP POST request data (Temperature in Celsius degrees)
+      String httpRequestData = "api_key=" + apiKeyValue + "&temperature=" + String(t)
+                             + "&weight=" + String(fsrValue) + "&gyro=" + String(squareDistanceGyro)
+                             + "&accelerometer=" + String(squareDistanceAcc) + "&state=" + String(state) + "";
+    
+      client.print(String("POST ") + resource + " HTTP/1.1\r\n");
+      client.print(String("Host: ") + server + "\r\n");
+      client.println("Connection: close");
+      client.println("Content-Type: application/x-www-form-urlencoded");
+      client.print("Content-Length: ");
+      client.println(httpRequestData.length());
+      client.println();
+      client.println(httpRequestData);
+
+      unsigned long timeout = millis(); 
+      while (client.connected() && millis() - timeout < 10000L) {
+        // Print available data (HTTP response from server)
+        while (client.available()) {
+          char c = client.read();
+          SerialMon.print(c);
+          timeout = millis();
+        }
+      }
+      client.stop();
+      modem.gprsDisconnect();
+    }
+  }
 }
