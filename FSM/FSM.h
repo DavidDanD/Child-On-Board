@@ -39,6 +39,15 @@
 #define SOFT_ALARM_DELAY		5*1000
 #define IDLE_THRESHOLD_BUZZER 	10*1000
 
+// WIFI
+#ifdef ESP32
+#include <WiFi.h>
+#include <HTTPClient.h>
+#else
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClient.h>
+#endif
 
 #ifdef DUMP_AT_COMMANDS
   #include <StreamDebugger.h>
@@ -59,3 +68,4 @@ void readDhtValues();
 void calculateHeatIndex();
 void calculateSquareDistance();
 void printSensorsValues();
+void publish_data_to_cloud();
