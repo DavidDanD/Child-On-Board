@@ -26,8 +26,8 @@ int16_t mpuTemperature;
 int16_t temperature;
 
 //Gyroscope sensor deviation
-int accThreshold = 1000000;
-int gyroThreshold = 50000;
+int accThreshold = 80000;
+int gyroThreshold = 15000;
 
 //FSR
 int fsrValue = 0;
@@ -43,8 +43,8 @@ bool stopBuzzer = true;
 int buzzerParams[] = {0,0,0};
 
 //DHT
-int hicMinThreshold = 30;
-int hicMaxThreshold = 35;
+int hicMinThreshold = 32;
+int hicMaxThreshold = 36;
 float h,t,hic;
 DHT dht(DHT_PIN, DHT_TYPE);
 
@@ -133,8 +133,8 @@ void state_machine_run()
         }
       }
       
-      if(hic >= hicMinThreshold){
-        state = SOFT_ALARM;
+      if(hic >= hicMaxThreshold){
+        state = ALARM;
       }
       
       Serial.println("START END");
@@ -163,28 +163,28 @@ void state_machine_run()
         break;
       }
       
-      if(hic >= hicMinThreshold){
-        asprintf(&msg, "High temperature: %.1f degrees Celsuis.", hic);
-        sendMsg(msg);
-        state = ALARM;
-      }
-      
       if((millis()-engineIdleTime) > IDLE_THRESHOLD_SMS){
         if((millis()-engineIdleSMSTime) > IDLE_DELAY_SMS){
           sendMsg("Child on board");
           engineIdleSMSTime = millis();
         }
       }
+      
       if((millis()-engineIdleTime) > IDLE_THRESHOLD_BUZZER){
-        sendMsg("Child on board");
+//        sendMsg("Child on board");
+        state = SOFT_ALARM;
+      }
+      
+      if(hic >= hicMaxThreshold){
+        asprintf(&msg, "High temperature: %.1f degrees Celsuis.", hic);
+        sendMsg(msg);
         state = ALARM;
       }
+      
       break;
       
     case SOFT_ALARM:
       Serial.println("SOFT_ALARM");
-      asprintf(&msg, "High temperature: %.1f degrees Celsuis.", hic);
-      sendMsg(msg);
       softAlarm();
       
       if(fsrValue < fsrThreshold){
@@ -199,12 +199,26 @@ void state_machine_run()
       stopBuzzer = true;
       pthread_join(buzzerThread, (void**)(&returnValue));
       
-      readDhtValues();
-      calculateHeatIndex();
-      if(hic >= hicMaxThreshold){
-        asprintf(&msg, "Extremely High temperature: %.1f degrees Celsuis.", hic);
+      getreadings();
+      
+      if(hic >= hicMinThreshold){
+        asprintf(&msg, "High temperature: %.1f degrees Celsuis.", hic);
         sendMsg(msg);
         state = ALARM;
+      }
+      
+      if (squareDistanceAcc>accThreshold) {
+        state = START;
+        break;
+      }
+      if (squareDistanceGyro>gyroThreshold) {
+        state = START;
+        break;
+      }
+      
+      if((millis()-engineIdleSMSTime) > IDLE_DELAY_SMS){
+        sendMsg("Child on board");
+        engineIdleSMSTime = millis();
       }
       
       break;
@@ -219,30 +233,30 @@ void state_machine_run()
         break;
       }
       
-      if ((millis() - lastTimeSMS) > SMSDelay) {
-        sendMsg("Child on board");
-      }
-      
+      //readDhtValues();
+      //calculateHeatIndex
       getreadings();
       
-      if (hic >= hicMaxThreshold){
+      if (hic < hicMinThreshold){
+        stopBuzzer = true;
+        pthread_join(buzzerThread, (void**)(&returnValue));
+	      if (squareDistanceAcc>accThreshold) {
+	        state = START;
+	        break;
+	      }
+	      if (squareDistanceGyro>gyroThreshold) {
+	        state = START;
+	        break;
+	      }
+        state = SOFT_ALARM;
         break;
       }
       
-      if (squareDistanceAcc>accThreshold) {
-        state = START;
-        stopBuzzer = true;
-        pthread_join(buzzerThread, (void**)(&returnValue));
+      if ((millis() - lastTimeSMS) > SMSDelay) {
+        asprintf(&msg, "High temperature: %.1f degrees Celsuis.", hic);
+        sendMsg(msg);
         break;
       }
-      if (squareDistanceGyro>gyroThreshold) {
-        state = START;
-        stopBuzzer = true;
-        pthread_join(buzzerThread, (void**)(&returnValue));
-        break;
-      }
-      break;
-
   }
 }
 
